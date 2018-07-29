@@ -1,0 +1,76 @@
+{
+  "name": "nemesis-db",
+  "version": "1.0.0",
+  "description": "A simple graphdb build on redis",
+  "main": "dist",
+  "scripts": {
+    "test": "nyc mocha --opts src/mocha.opts",
+    "coverage": "nyc report --reporter=text-lcov > coverage.lcov && codecov",
+    "lint": "npm run build && npm run tslint",
+    "tslint": "tslint -p tsconfig.json src/*.ts",
+    "format": "npm run tslint -- --fix",
+    "build": "tsc",
+    "prepublish": "npm run build"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/reconbot/nemesis-db.git"
+  },
+  "keywords": [
+    "redis",
+    "graphdb",
+    "graph",
+    "database"
+  ],
+  "author": "Francis Gulotta <wizard@roborooter.com>",
+  "license": "Apache-2.0",
+  "bugs": {
+    "url": "https://github.com/reconbot/nemesis-db/issues"
+  },
+  "engines": {
+    "node": ">=8"
+  },
+  "homepage": "https://github.com/reconbot/nemesis-db#readme",
+  "devDependencies": {
+    "@types/chai": "^4.1.4",
+    "@types/chai-as-promised": "^7.1.0",
+    "@types/mocha": "^5.2.2",
+    "@types/node": "^10.5.4",
+    "chai": "^4.1.0",
+    "chai-as-promised": "^7.1.1",
+    "codecov": "^3.0.4",
+    "mocha": "^5.2.0",
+    "nyc": "^12.0.2",
+    "source-map-support": "^0.5.6",
+    "ts-node": "^7.0.0",
+    "tslint": "^5.10.0",
+    "tslint-eslint-rules": "^5.3.1",
+    "tslint-immutable": "^4.6.0",
+    "typescript": "^2.9.2"
+  },
+  "dependencies": {
+    "@types/ioredis": "^3.2.13",
+    "@types/msgpack5": "^3.4.1",
+    "invariant": "^2.2.4",
+    "ioredis": "^3.2.2",
+    "msgpack5": "^4.2.0"
+  },
+  "nyc": {
+    "extension": [
+      ".ts",
+      ".tsx"
+    ],
+    "exclude": [
+      "coverage",
+      "dist",
+      "**/*.d.ts",
+      "**/*-test.ts"
+    ],
+    "reporter": [
+      "html",
+      "text",
+      "lcovonly"
+    ],
+    "all": true
+  }
+}

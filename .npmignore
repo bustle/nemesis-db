@@ -1,0 +1,8 @@
+docs
+nemesis.jpg
+src
+tslint.json
+tsconfig.json
+.vscode
+.nyc_output
+coverage
