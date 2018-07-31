@@ -38,10 +38,11 @@ import { Graph } from 'nememis-db'
 
 const graph = new Graph('redis://localhost/1')
 
-const book = await graph.createNode({ title: 'foo' })
+const book = await graph.createNode({ title: 'foo', pages: 24 })
 // { id: 1, title: 'foo' }
-await graph.updateNode({ ...book, title: 'bar' })
-// { id: 1, title: 'bar' }
+// patch the data of an existing node
+await graph.updateNode({ id: book.id, title: 'bar' })
+// { id: 1, title: 'bar', pages: 24 }
 const author = await graph.createNode({ name: 'james' })
 // { id: 2, name: 'james' }
 await graph.createEdge({ subject: book.id, predicate: 'BookHasAuthor', object: author.id })
@@ -50,6 +51,18 @@ const authors = await graph.findEdges({ subject: book.id, predicate: 'BookHasAut
 // [{ subject: 1, predicate: 'BookHasAuthor', object: 2, weight: 0 }]
 await graph.findNode(authors[0].object)
 // { id: 2, name: 'james' }
+
+// Get an async iterator of all the nodes
+for await (node of graph.allNodes()) {
+  console.log(node)
+}
+// { id: 1, title: 'bar', pages: 24 }
+// { id: 2, name: 'james' }
+
+// use streaming iterables to make an array of them
+import { collect } from 'streaming-iterables'
+await collect(graph.allNodes())
+// [{ id: 1, title: 'bar', pages: 24 }, { id: 2, name: 'james' }]
 ```
 
 

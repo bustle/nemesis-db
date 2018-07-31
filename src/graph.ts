@@ -11,12 +11,14 @@ export interface GraphConfigInput {
   guidKey?: string
   nodeKeyPrefix?: string
   edgePrefix?: string
+  nodeIndexKey?: string
 }
 
 export interface GraphConfig {
   readonly guidKey: string
   readonly nodeKeyPrefix: string
   readonly edgePrefix: string
+  readonly nodeIndexKey: string
 }
 
 export interface EdgeInput {
@@ -54,6 +56,11 @@ declare module 'ioredis' {
   }
 }
 
+// polyfill for missing async iterator symbol
+if ((Symbol as any).asyncIterator === undefined) {
+  ((Symbol as any).asyncIterator) = Symbol.for('asyncIterator')
+}
+
 export class Graph {
   readonly config: GraphConfig
   readonly redis: Redis.Redis
@@ -64,6 +71,7 @@ export class Graph {
       guidKey: 'counter:guid',
       nodeKeyPrefix: 'node:',
       edgePrefix: 'edge:',
+      nodeIndexKey: 'index:node:id',
       ...config
     }
     this.redis = new Redis(redisUrl)
@@ -126,10 +134,13 @@ export class Graph {
       id
     }
 
-    await this.redis.hmset(this.nodeKey(id), {
-      id,
-      data: this.messagePack.encode(node),
-    })
+    await Promise.all([
+      this.redis.hmset(this.nodeKey(id), {
+        id,
+        data: this.messagePack.encode(node),
+      }),
+      this.redis.zadd(this.config.nodeIndexKey, '0', String(id))
+    ])
 
     return node
   }
@@ -192,5 +203,20 @@ export class Graph {
       })
     }
     return edges
+  }
+
+  async *allNodes({ batchSize = 200 }  = {}) {
+    let cursor = 0
+    while(true) {
+      const [nextCursor, redisIds] = await this.redis.zscan(this.config.nodeIndexKey, cursor, 'COUNT', batchSize)
+      for (let i = 0; i < redisIds.length; i += 2) {
+        let id = redisIds[i]
+        yield await this.findNode(id)
+      }
+      if (nextCursor === '0') {
+        return
+      }
+      cursor = Number(nextCursor)
+    }
   }
 }
