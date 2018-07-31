@@ -2,6 +2,7 @@ import * as chai from 'chai'
 import * as chaiAsPromised from 'chai-as-promised'
 import { Graph } from './graph'
 import * as Redis from 'ioredis'
+import { collect } from 'streaming-iterables'
 
 chai.use(chaiAsPromised);
 const assert = chai.assert
@@ -37,7 +38,7 @@ describe('Graph', () => {
   })
 
   describe('updateNode', () => {
-    it('replaces the data of an existing node', async () => {
+    it('patches the data of an existing node', async () => {
       const bookData = {
         title: "A brief memory of time",
         likes: 50,
@@ -73,6 +74,7 @@ describe('Graph', () => {
       assert.deepEqual(node, await graph.findNode(node.id))
     })
   })
+
   describe('createEdge', () => {
     it('creates an edge', async () => {
       const object = await graph.createNode({ type: 'object' })
@@ -108,6 +110,7 @@ describe('Graph', () => {
       }))
     })
   })
+
   describe('findEdges', () => {
     it('finds an edge with a subject and predicate', async () => {
       const object = await graph.createNode({ type: 'object' })
@@ -153,6 +156,27 @@ describe('Graph', () => {
         weight: 2
       }])
 
+    })
+  })
+
+  describe('allNodes', () => {
+    it('returns an async iterator of all the nodes', async () => {
+      const node1 = await graph.createNode({ foo: 1 })
+      const node2 = await graph.createNode({ foo: 2 })
+      const nodes = []
+      for await (const node of graph.allNodes()) {
+        nodes.push(node)
+      }
+      assert.deepEqual(nodes, [node1, node2])
+      assert.deepEqual(await collect(graph.allNodes()), [node1, node2])
+    })
+    it('paginates', async () => {
+      const nodes = []
+      for (let i = 0; i < 200; i++) {
+        nodes.push(graph.createNode({ }))
+      }
+      await Promise.all(nodes)
+      assert.equal((await collect(graph.allNodes({ batchSize: 1}))).length, 200)
     })
   })
 })
