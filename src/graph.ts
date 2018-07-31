@@ -47,6 +47,13 @@ export interface ObjectEdgeSearch {
   limit?: number
 }
 
+declare module 'ioredis' {
+  interface Redis {
+    createEdge(objectEdgeKey: string, subjectEdgeKey: string, subjectKey: string, objectKey: string, subject: number, object: number, weight: number): Promise<Edge>
+    hgetBuffer(key: string, field: string): Promise<Buffer>
+  }
+}
+
 export class Graph {
   readonly config: GraphConfig
   readonly redis: Redis.Redis
@@ -60,7 +67,36 @@ export class Graph {
       ...config
     }
     this.redis = new Redis(redisUrl)
+    this.evalCommands()
     this.messagePack = messagePack()
+  }
+
+  evalCommands() {
+    this.redis.defineCommand('createEdge', {
+      numberOfKeys: 4,
+      lua: `
+      local objectEdgeKey = KEYS[1]
+      local subjectEdgeKey = KEYS[2]
+      local subjectKey = KEYS[3]
+      local objectKey = KEYS[4]
+
+      local subjectId = ARGV[1]
+      local objectId = ARGV[2]
+      local weight = ARGV[3]
+
+      if redis.call("exists", subjectKey) == 0 then
+        error('subject:' .. subjectId .. ' does not exist at key "' .. subjectKey .. '"')
+      end
+
+      if redis.call("exists", objectKey) == 0 then
+      error('object:' .. objectId .. ' does not exist at key "' .. objectKey .. '"')
+      end
+
+      redis.call('zadd', objectEdgeKey, weight, subjectId)
+      redis.call('zadd', subjectEdgeKey, weight, objectId)
+      return 1
+      `
+    })
   }
 
   disconnect() {
@@ -113,9 +149,9 @@ export class Graph {
     return updatedNode
   }
 
-  async findNode(id: number): Promise<Node|null> {
+  async findNode(id: number): Promise<Node> {
     const nodeKey = `${this.config.nodeKeyPrefix}${id}`
-    const data = await (this.redis as any).hgetBuffer(nodeKey, 'data')
+    const data = await this.redis.hgetBuffer(nodeKey, 'data')
     if (!data) {
       return null
     }
@@ -123,13 +159,12 @@ export class Graph {
   }
 
   async createEdge({ subject, predicate, object, weight = 0 }: EdgeInput): Promise<Edge> {
-    invariant(await this.nodeExists(subject), `subject:${subject} does not exist`)
-    invariant(await this.nodeExists(object), `object:${object} does not exist`)
+    const objectEdgeKey = `${this.config.edgePrefix}:o:${object}:${predicate}`
+    const subjectEdgeKey = `${this.config.edgePrefix}:s:${subject}:${predicate}`
+    const subjectKey = this.nodeKey(subject)
+    const objectKey = this.nodeKey(object)
 
-    await Promise.all([
-      this.redis.zadd(`${this.config.edgePrefix}:o:${object}:${predicate}`, `${weight}`, `${subject}`),
-      this.redis.zadd(`${this.config.edgePrefix}:s:${subject}:${predicate}`, `${weight}`, `${object}`),
-    ])
+    await this.redis.createEdge(objectEdgeKey, subjectEdgeKey, subjectKey, objectKey, subject, object, weight)
     return { subject, predicate, object, weight }
   }
 
