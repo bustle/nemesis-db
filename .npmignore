@@ -1,6 +1,6 @@
 docs
 nemesis.jpg
-src
+lib
 tslint.json
 tsconfig.json
 .vscode

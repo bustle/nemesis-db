@@ -11,10 +11,10 @@
     ]
   },
   "include": [
-    "src/*.ts"
+    "lib/*.ts"
   ],
   "exclude": [
     "node_modules",
-    "src/*-test.ts"
+    "lib/*-test.ts"
   ]
 }

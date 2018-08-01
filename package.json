@@ -4,10 +4,10 @@
   "description": "A simple graphdb build on redis",
   "main": "dist",
   "scripts": {
-    "test": "nyc mocha --opts src/mocha.opts",
+    "test": "nyc mocha --opts lib/mocha.opts",
     "coverage": "nyc report --reporter=text-lcov > coverage.lcov && codecov",
     "lint": "npm run build && npm run tslint",
-    "tslint": "tslint -p tsconfig.json src/*.ts",
+    "tslint": "tslint -p tsconfig.json lib/*.ts",
     "format": "npm run tslint -- --fix",
     "build": "tsc",
     "prepublish": "npm run build"

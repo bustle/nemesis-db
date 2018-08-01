@@ -97,7 +97,7 @@ export class Graph {
       end
 
       if redis.call("exists", objectKey) == 0 then
-      error('object:' .. objectId .. ' does not exist at key "' .. objectKey .. '"')
+        error('object:' .. objectId .. ' does not exist at key "' .. objectKey .. '"')
       end
 
       redis.call('zadd', objectEdgeKey, weight, subjectId)
