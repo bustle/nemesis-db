@@ -80,31 +80,7 @@ export class Graph {
   }
 
   evalCommands() {
-    this.redis.defineCommand('createEdge', {
-      numberOfKeys: 4,
-      lua: `
-      local objectEdgeKey = KEYS[1]
-      local subjectEdgeKey = KEYS[2]
-      local subjectKey = KEYS[3]
-      local objectKey = KEYS[4]
-
-      local subjectId = ARGV[1]
-      local objectId = ARGV[2]
-      local weight = ARGV[3]
-
-      if redis.call("exists", subjectKey) == 0 then
-        error('subject:' .. subjectId .. ' does not exist at key "' .. subjectKey .. '"')
-      end
-
-      if redis.call("exists", objectKey) == 0 then
-        error('object:' .. objectId .. ' does not exist at key "' .. objectKey .. '"')
-      end
-
-      redis.call('zadd', objectEdgeKey, weight, subjectId)
-      redis.call('zadd', subjectEdgeKey, weight, objectId)
-      return 1
-      `
-    })
+    this.evalCreateEdge()
   }
 
   disconnect() {
@@ -160,13 +136,41 @@ export class Graph {
     return updatedNode
   }
 
-  async findNode(id: number): Promise<Node> {
+  async findNode(id: number): Promise<Node|null> {
     const nodeKey = `${this.config.nodeKeyPrefix}${id}`
     const data = await this.redis.hgetBuffer(nodeKey, 'data')
     if (!data) {
       return null
     }
     return this.messagePack.decode(data)
+  }
+
+  evalCreateEdge() {
+    this.redis.defineCommand('createEdge', {
+      numberOfKeys: 4,
+      lua: `
+      local objectEdgeKey = KEYS[1]
+      local subjectEdgeKey = KEYS[2]
+      local subjectKey = KEYS[3]
+      local objectKey = KEYS[4]
+
+      local subjectId = ARGV[1]
+      local objectId = ARGV[2]
+      local weight = ARGV[3]
+
+      if redis.call("exists", subjectKey) == 0 then
+        error('subject:' .. subjectId .. ' does not exist at key "' .. subjectKey .. '"')
+      end
+
+      if redis.call("exists", objectKey) == 0 then
+        error('object:' .. objectId .. ' does not exist at key "' .. objectKey .. '"')
+      end
+
+      redis.call('zadd', objectEdgeKey, weight, subjectId)
+      redis.call('zadd', subjectEdgeKey, weight, objectId)
+      return 1
+      `
+    })
   }
 
   async createEdge({ subject, predicate, object, weight = 0 }: EdgeInput): Promise<Edge> {
@@ -211,7 +215,10 @@ export class Graph {
       const [nextCursor, redisIds] = await this.redis.zscan(this.config.nodeIndexKey, cursor, 'COUNT', batchSize)
       for (let i = 0; i < redisIds.length; i += 2) {
         let id = redisIds[i]
-        yield await this.findNode(id)
+        const node = await this.findNode(id)
+        if (node) {
+          yield node
+        }
       }
       if (nextCursor === '0') {
         return
