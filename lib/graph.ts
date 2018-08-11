@@ -61,6 +61,7 @@ declare module 'ioredis' {
 }
 
 // polyfill for missing async iterator symbol
+/* istanbul ignore if */
 if ((Symbol as any).asyncIterator === undefined) {
   ((Symbol as any).asyncIterator) = Symbol.for('asyncIterator')
 }
@@ -90,6 +91,7 @@ export class Graph {
       for (let i = 0; i < redisIds.length; i += 2) {
         const id = redisIds[i]
         const node = await this.findNode(id)
+        /* istanbul ignore else */
         if (node) {
           yield node
         }
