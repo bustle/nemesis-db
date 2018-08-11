@@ -4,14 +4,14 @@ import * as messagePack from 'msgpack5'
 
 export interface Node {
   readonly id: number
-  [key: string]: any
+  readonly [key: string]: any
 }
 
 export interface GraphConfigInput {
-  guidKey?: string
-  nodeKeyPrefix?: string
-  edgePrefix?: string
-  nodeIndexKey?: string
+  readonly guidKey?: string
+  readonly nodeKeyPrefix?: string
+  readonly edgePrefix?: string
+  readonly nodeIndexKey?: string
 }
 
 export interface GraphConfig {
@@ -22,37 +22,37 @@ export interface GraphConfig {
 }
 
 export interface EdgeInput {
-  object: number
-  predicate: string
-  subject: number
-  weight?: number
+  readonly object: number
+  readonly predicate: string
+  readonly subject: number
+  readonly weight?: number
 }
 
 export interface Edge {
-  object: number
-  predicate: string
-  subject: number
-  weight: number
+  readonly object: number
+  readonly predicate: string
+  readonly subject: number
+  readonly weight: number
 }
 
 export interface SubjectEdgeSearch {
-  subject: number
-  predicate: string
-  offset?: number
-  limit?: number
+  readonly subject: number
+  readonly predicate: string
+  readonly offset?: number
+  readonly limit?: number
 }
 
 export interface ObjectEdgeSearch {
-  object: number
-  predicate: string
-  offset?: number
-  limit?: number
+  readonly object: number
+  readonly predicate: string
+  readonly offset?: number
+  readonly limit?: number
 }
 
 declare module 'ioredis' {
   interface Redis {
-    createEdge(objectEdgeKey: string, subjectEdgeKey: string, subjectKey: string, objectKey: string, subject: number, object: number, weight: number): Promise<Edge>
-    hgetBuffer(key: string, field: string): Promise<Buffer>
+    // tslint:disable-next-line:no-method-signature max-line-length
+    createEdge (objectEdgeKey: string, subjectEdgeKey: string, subjectKey: string, objectKey: string, subject: number, object: number, weight: number): Promise<Edge>
   }
 }
 
@@ -66,7 +66,7 @@ export class Graph {
   readonly redis: Redis.Redis
   readonly messagePack: messagePack.MessagePack
 
-  constructor(redisUrl: string, config?: GraphConfigInput) {
+  constructor (redisUrl: string, config?: GraphConfigInput) {
     this.config = {
       guidKey: 'counter:guid',
       nodeKeyPrefix: 'node:',
@@ -79,31 +79,37 @@ export class Graph {
     this.messagePack = messagePack()
   }
 
-  evalCommands() {
+  evalCommands (): void {
     this.evalCreateEdge()
   }
 
-  disconnect() {
+  disconnect (): void {
     this.redis.disconnect()
   }
 
-  private async getNextId () {
+  private async getNextId (): Promise<number> {
     return this.redis.incr(this.config.guidKey)
   }
 
-  private nodeKey(id) {
+  private nodeKey (id): string {
     return `${this.config.nodeKeyPrefix}${id}`
   }
 
-  async nodeExists(id: number): Promise<boolean> {
+  async nodeExists (id: number): Promise<boolean> {
     return !! (await this.redis.exists(this.nodeKey(id)))
   }
 
-  async createNode(attributes): Promise<Node> {
-    invariant(!attributes.id, `attributes already has an "id" property this is probably ok but I'm going ot panic anyway`)
+  async createNode (attributes): Promise<Node> {
+    invariant(
+      !attributes.id,
+      `attributes already has an "id" property this is probably ok but I'm going ot panic anyway`
+    )
 
     const id = await this.getNextId()
-    invariant(!await this.nodeExists(id), `Node with id ${id} already exists unable to create node. Something very bad has just happened`)
+    invariant(
+      !await this.nodeExists(id),
+      `Node with id ${id} already exists unable to create node. Something very bad has just happened`
+    )
 
     const node = {
       ...attributes,
@@ -121,7 +127,7 @@ export class Graph {
     return node
   }
 
-  async updateNode(node: Node): Promise<Node> {
+  async updateNode (node: Node): Promise<Node> {
     const { id } = node
     const oldNode = await this.findNode(id)
     invariant(oldNode, `Node:${id} doesn't exist cannot update`)
@@ -136,7 +142,7 @@ export class Graph {
     return updatedNode
   }
 
-  async findNode(id: number): Promise<Node|null> {
+  async findNode (id: number): Promise<Node|null> {
     const nodeKey = `${this.config.nodeKeyPrefix}${id}`
     const data = await this.redis.hgetBuffer(nodeKey, 'data')
     if (!data) {
@@ -145,7 +151,7 @@ export class Graph {
     return this.messagePack.decode(data)
   }
 
-  evalCreateEdge() {
+  evalCreateEdge (): void {
     this.redis.defineCommand('createEdge', {
       numberOfKeys: 4,
       lua: `
@@ -173,7 +179,7 @@ export class Graph {
     })
   }
 
-  async createEdge({ subject, predicate, object, weight = 0 }: EdgeInput): Promise<Edge> {
+  async createEdge ({ subject, predicate, object, weight = 0 }: EdgeInput): Promise<Edge> {
     const objectEdgeKey = `${this.config.edgePrefix}:o:${object}:${predicate}`
     const subjectEdgeKey = `${this.config.edgePrefix}:s:${subject}:${predicate}`
     const subjectKey = this.nodeKey(subject)
@@ -183,14 +189,24 @@ export class Graph {
     return { subject, predicate, object, weight }
   }
 
-  async findEdges(edge: SubjectEdgeSearch | ObjectEdgeSearch) {
+  async findEdges (edge: SubjectEdgeSearch | ObjectEdgeSearch): Promise<ReadonlyArray<Edge>> {
     const { predicate, offset = 0, limit = 10 } = edge
     const { subject } = edge as SubjectEdgeSearch
     const { object } = edge as ObjectEdgeSearch
-    const key = subject ? `${this.config.edgePrefix}:s:${subject}:${predicate}` : `${this.config.edgePrefix}:o:${object}:${predicate}`
-    const idWeightPairs = await this.redis.zrangebyscore(key, -Infinity, Infinity, 'WITHSCORES', 'LIMIT', `${offset}`, `${limit}`)
+    const key = subject
+      ? `${this.config.edgePrefix}:s:${subject}:${predicate}`
+      : `${this.config.edgePrefix}:o:${object}:${predicate}`
+    const idWeightPairs = await this.redis.zrangebyscore(
+      key,
+      -Infinity,
+      Infinity,
+      'WITHSCORES',
+      'LIMIT',
+      `${offset}`,
+      `${limit}`
+    )
 
-    const edges: Array<Edge> = []
+    const edges: Edge[] = []
     for (let i = 0; i < idWeightPairs.length; i += 2) {
       const nodeId = Number(idWeightPairs[i])
       const weight = Number(idWeightPairs[i + 1])
@@ -199,7 +215,7 @@ export class Graph {
         predicate,
         object: nodeId,
         weight
-      }: {
+      } : {
         subject: nodeId,
         predicate,
         object,
@@ -209,12 +225,12 @@ export class Graph {
     return edges
   }
 
-  async *allNodes({ batchSize = 200 }  = {}) {
+  async *allNodes ({ batchSize = 200 }  = {}): AsyncIterableIterator<Node> {
     let cursor = 0
-    while(true) {
+    while (true) {
       const [nextCursor, redisIds] = await this.redis.zscan(this.config.nodeIndexKey, cursor, 'COUNT', batchSize)
       for (let i = 0; i < redisIds.length; i += 2) {
-        let id = redisIds[i]
+        const id = redisIds[i]
         const node = await this.findNode(id)
         if (node) {
           yield node

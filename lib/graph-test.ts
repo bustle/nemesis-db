@@ -1,17 +1,16 @@
 import * as chai from 'chai'
 import * as chaiAsPromised from 'chai-as-promised'
-import { Graph } from './graph'
 import * as Redis from 'ioredis'
 import { collect } from 'streaming-iterables'
+import { Graph, Node } from './graph'
 
-chai.use(chaiAsPromised);
+chai.use(chaiAsPromised)
 const assert = chai.assert
 
 const testRedisUrl = 'redis://localhost/2'
 
-
 describe('Graph', () => {
-  let graph : Graph
+  let graph: Graph
   beforeEach(async () => {
     const redis = new Redis(testRedisUrl)
     await redis.flushdb()
@@ -25,7 +24,7 @@ describe('Graph', () => {
   describe('createNode', () => {
     it('creates a node', async () => {
       const bookData = {
-        title: "A brief memory of time",
+        title: 'A brief memory of time',
         likes: 50,
         publishedAt: new Date(),
         meta: {
@@ -40,14 +39,14 @@ describe('Graph', () => {
   describe('updateNode', () => {
     it('patches the data of an existing node', async () => {
       const bookData = {
-        title: "A brief memory of time",
+        title: 'A brief memory of time',
         likes: 50,
       }
       const { id } = await graph.createNode(bookData)
       const updatedNode = await graph.updateNode({ id, likes: 49 }) // so sad
       assert.deepEqual(updatedNode, {
         id,
-        title: "A brief memory of time",
+        title: 'A brief memory of time',
         likes: 49
       })
     })
@@ -63,7 +62,7 @@ describe('Graph', () => {
 
     it('finds a node', async () => {
       const bookData = {
-        title: "A brief memory of time",
+        title: 'A brief memory of time',
         likes: 50,
         publishedAt: new Date(),
         meta: {
@@ -121,23 +120,21 @@ describe('Graph', () => {
         subject: subject.id,
         weight: 1
       })
-      const edge2 = await graph.createEdge({
+      await graph.createEdge({
         object: object.id,
         predicate: 'HasThingy2',
         subject: subject.id,
         weight: 2
       })
-      assert.deepEqual(await graph.findEdges({ subject: subject.id, predicate: 'HasThingy'}), [{
-        object: object.id,
-        predicate: 'HasThingy',
-        subject: subject.id,
-        weight: 1
-      }])
+      assert.deepEqual(
+        await graph.findEdges({ subject: subject.id, predicate: 'HasThingy'}),
+        [edge]
+      )
     })
     it('finds an edge with an object and predicate', async () => {
       const object = await graph.createNode({ type: 'object' })
       const subject = await graph.createNode({ type: 'subject' })
-      const edge = await graph.createEdge({
+      await graph.createEdge({
         object: object.id,
         predicate: 'HasThingy',
         subject: subject.id,
@@ -149,13 +146,10 @@ describe('Graph', () => {
         subject: subject.id,
         weight: 2
       })
-      assert.deepEqual(await graph.findEdges({ object: object.id, predicate: 'HasThingy2'}), [{
-        object: object.id,
-        predicate: 'HasThingy2',
-        subject: subject.id,
-        weight: 2
-      }])
-
+      assert.deepEqual(
+        await graph.findEdges({ object: object.id, predicate: 'HasThingy2'}),
+        [edge2]
+      )
     })
   })
 
@@ -163,7 +157,7 @@ describe('Graph', () => {
     it('returns an async iterator of all the nodes', async () => {
       const node1 = await graph.createNode({ foo: 1 })
       const node2 = await graph.createNode({ foo: 2 })
-      const nodes = []
+      const nodes: Node[] = []
       for await (const node of graph.allNodes()) {
         nodes.push(node)
       }
@@ -171,7 +165,7 @@ describe('Graph', () => {
       assert.deepEqual(await collect(graph.allNodes()), [node1, node2])
     })
     it('paginates', async () => {
-      const nodes = []
+      const nodes: Array<Promise<Node>> = []
       for (let i = 0; i < 200; i++) {
         nodes.push(graph.createNode({ }))
       }

@@ -1,0 +1,18 @@
+{
+  "extension": [
+    ".ts",
+    ".tsx"
+  ],
+  "exclude": [
+    "coverage",
+    "dist",
+    "**/*.d.ts",
+    "**/*-test.ts"
+  ],
+  "reporter": [
+    "html",
+    "text",
+    "lcovonly"
+  ],
+  "all": true
+}
