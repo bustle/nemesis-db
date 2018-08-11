@@ -31,7 +31,7 @@ This is a simple adjacency graph database with only a few features. It has been 
 - Field Indexing
 - Binary packing
 
-## API
+## Examples
 
 ```js
 import { Graph } from 'nememis-db'
@@ -65,7 +65,73 @@ await collect(graph.allNodes())
 // [{ id: 1, title: 'bar', pages: 24 }, { id: 2, name: 'james' }]
 ```
 
+## API Type Defs
 
+```ts
+export declare class Graph {
+    readonly config: GraphConfig;
+    readonly messagePack: messagePack.MessagePack;
+    readonly redis: Redis.Redis;
+    constructor(redisUrl: string, config?: GraphConfigInput);
+    allNodes({ batchSize }?: NodeScanOptions): AsyncIterableIterator<Node>;
+    createEdge({ subject, predicate, object, weight }: EdgeInput): Promise<Edge>;
+    createNode(attributes: any): Promise<Node>;
+    disconnect(): void;
+    findEdges(edge: SubjectEdgeSearch | ObjectEdgeSearch): Promise<ReadonlyArray<Edge>>;
+    findNode(id: number): Promise<Node | null>;
+    nodeExists(id: number): Promise<boolean>;
+    updateNode(node: Node): Promise<Node>;
+    private evalCommands;
+    private evalCreateEdge;
+    private getNextId;
+    private nodeKey;
+}
+
+export interface Node {
+    readonly id: number;
+    readonly [key: string]: any;
+}
+export interface GraphConfigInput {
+    readonly edgePrefix?: string;
+    readonly guidKey?: string;
+    readonly nodeIndexKey?: string;
+    readonly nodeKeyPrefix?: string;
+}
+export interface GraphConfig {
+    readonly edgePrefix: string;
+    readonly guidKey: string;
+    readonly nodeIndexKey: string;
+    readonly nodeKeyPrefix: string;
+}
+export interface EdgeInput {
+    readonly object: number;
+    readonly predicate: string;
+    readonly subject: number;
+    readonly weight?: number;
+}
+export interface Edge {
+    readonly object: number;
+    readonly predicate: string;
+    readonly subject: number;
+    readonly weight: number;
+}
+export interface SubjectEdgeSearch {
+    readonly limit?: number;
+    readonly offset?: number;
+    readonly predicate: string;
+    readonly subject: number;
+}
+export interface ObjectEdgeSearch {
+    readonly limit?: number;
+    readonly object: number;
+    readonly offset?: number;
+    readonly predicate: string;
+}
+export interface NodeScanOptions {
+    readonly batchSize?: number;
+}
+
+```
 
 ## Developing
 

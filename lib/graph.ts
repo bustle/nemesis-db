@@ -49,6 +49,10 @@ export interface ObjectEdgeSearch {
   readonly predicate: string
 }
 
+export interface NodeScanOptions {
+  readonly batchSize?: number
+}
+
 declare module 'ioredis' {
   interface Redis {
     // tslint:disable-next-line:no-method-signature max-line-length
@@ -79,7 +83,7 @@ export class Graph {
     this.messagePack = messagePack()
   }
 
-  async *allNodes ({ batchSize = 200 }  = {}): AsyncIterableIterator<Node> {
+  async *allNodes ({ batchSize = 200 }: NodeScanOptions = {}): AsyncIterableIterator<Node> {
     let cursor = 0
     while (true) {
       const [nextCursor, redisIds] = await this.redis.zscan(this.config.nodeIndexKey, cursor, 'COUNT', batchSize)
