@@ -8,17 +8,17 @@ export interface Node {
 }
 
 export interface GraphConfigInput {
-  readonly guidKey?: string
-  readonly nodeKeyPrefix?: string
   readonly edgePrefix?: string
+  readonly guidKey?: string
   readonly nodeIndexKey?: string
+  readonly nodeKeyPrefix?: string
 }
 
 export interface GraphConfig {
-  readonly guidKey: string
-  readonly nodeKeyPrefix: string
   readonly edgePrefix: string
+  readonly guidKey: string
   readonly nodeIndexKey: string
+  readonly nodeKeyPrefix: string
 }
 
 export interface EdgeInput {
@@ -36,17 +36,17 @@ export interface Edge {
 }
 
 export interface SubjectEdgeSearch {
-  readonly subject: number
-  readonly predicate: string
-  readonly offset?: number
   readonly limit?: number
+  readonly offset?: number
+  readonly predicate: string
+  readonly subject: number
 }
 
 export interface ObjectEdgeSearch {
-  readonly object: number
-  readonly predicate: string
-  readonly offset?: number
   readonly limit?: number
+  readonly object: number
+  readonly offset?: number
+  readonly predicate: string
 }
 
 declare module 'ioredis' {
@@ -63,8 +63,8 @@ if ((Symbol as any).asyncIterator === undefined) {
 
 export class Graph {
   readonly config: GraphConfig
-  readonly redis: Redis.Redis
   readonly messagePack: messagePack.MessagePack
+  readonly redis: Redis.Redis
 
   constructor (redisUrl: string, config?: GraphConfigInput) {
     this.config = {
@@ -79,24 +79,32 @@ export class Graph {
     this.messagePack = messagePack()
   }
 
-  evalCommands (): void {
-    this.evalCreateEdge()
+  async *allNodes ({ batchSize = 200 }  = {}): AsyncIterableIterator<Node> {
+    let cursor = 0
+    while (true) {
+      const [nextCursor, redisIds] = await this.redis.zscan(this.config.nodeIndexKey, cursor, 'COUNT', batchSize)
+      for (let i = 0; i < redisIds.length; i += 2) {
+        const id = redisIds[i]
+        const node = await this.findNode(id)
+        if (node) {
+          yield node
+        }
+      }
+      if (nextCursor === '0') {
+        return
+      }
+      cursor = Number(nextCursor)
+    }
   }
 
-  disconnect (): void {
-    this.redis.disconnect()
-  }
+  async createEdge ({ subject, predicate, object, weight = 0 }: EdgeInput): Promise<Edge> {
+    const objectEdgeKey = `${this.config.edgePrefix}:o:${object}:${predicate}`
+    const subjectEdgeKey = `${this.config.edgePrefix}:s:${subject}:${predicate}`
+    const subjectKey = this.nodeKey(subject)
+    const objectKey = this.nodeKey(object)
 
-  private async getNextId (): Promise<number> {
-    return this.redis.incr(this.config.guidKey)
-  }
-
-  private nodeKey (id): string {
-    return `${this.config.nodeKeyPrefix}${id}`
-  }
-
-  async nodeExists (id: number): Promise<boolean> {
-    return !! (await this.redis.exists(this.nodeKey(id)))
+    await this.redis.createEdge(objectEdgeKey, subjectEdgeKey, subjectKey, objectKey, subject, object, weight)
+    return { subject, predicate, object, weight }
   }
 
   async createNode (attributes): Promise<Node> {
@@ -127,66 +135,8 @@ export class Graph {
     return node
   }
 
-  async updateNode (node: Node): Promise<Node> {
-    const { id } = node
-    const oldNode = await this.findNode(id)
-    invariant(oldNode, `Node:${id} doesn't exist cannot update`)
-    const updatedNode = {
-      ...oldNode,
-      ...node
-    }
-    await this.redis.hmset(this.nodeKey(id), {
-      id,
-      data: this.messagePack.encode(updatedNode),
-    })
-    return updatedNode
-  }
-
-  async findNode (id: number): Promise<Node|null> {
-    const nodeKey = `${this.config.nodeKeyPrefix}${id}`
-    const data = await this.redis.hgetBuffer(nodeKey, 'data')
-    if (!data) {
-      return null
-    }
-    return this.messagePack.decode(data)
-  }
-
-  evalCreateEdge (): void {
-    this.redis.defineCommand('createEdge', {
-      numberOfKeys: 4,
-      lua: `
-      local objectEdgeKey = KEYS[1]
-      local subjectEdgeKey = KEYS[2]
-      local subjectKey = KEYS[3]
-      local objectKey = KEYS[4]
-
-      local subjectId = ARGV[1]
-      local objectId = ARGV[2]
-      local weight = ARGV[3]
-
-      if redis.call("exists", subjectKey) == 0 then
-        error('subject:' .. subjectId .. ' does not exist at key "' .. subjectKey .. '"')
-      end
-
-      if redis.call("exists", objectKey) == 0 then
-        error('object:' .. objectId .. ' does not exist at key "' .. objectKey .. '"')
-      end
-
-      redis.call('zadd', objectEdgeKey, weight, subjectId)
-      redis.call('zadd', subjectEdgeKey, weight, objectId)
-      return 1
-      `
-    })
-  }
-
-  async createEdge ({ subject, predicate, object, weight = 0 }: EdgeInput): Promise<Edge> {
-    const objectEdgeKey = `${this.config.edgePrefix}:o:${object}:${predicate}`
-    const subjectEdgeKey = `${this.config.edgePrefix}:s:${subject}:${predicate}`
-    const subjectKey = this.nodeKey(subject)
-    const objectKey = this.nodeKey(object)
-
-    await this.redis.createEdge(objectEdgeKey, subjectEdgeKey, subjectKey, objectKey, subject, object, weight)
-    return { subject, predicate, object, weight }
+  disconnect (): void {
+    this.redis.disconnect()
   }
 
   async findEdges (edge: SubjectEdgeSearch | ObjectEdgeSearch): Promise<ReadonlyArray<Edge>> {
@@ -225,21 +175,71 @@ export class Graph {
     return edges
   }
 
-  async *allNodes ({ batchSize = 200 }  = {}): AsyncIterableIterator<Node> {
-    let cursor = 0
-    while (true) {
-      const [nextCursor, redisIds] = await this.redis.zscan(this.config.nodeIndexKey, cursor, 'COUNT', batchSize)
-      for (let i = 0; i < redisIds.length; i += 2) {
-        const id = redisIds[i]
-        const node = await this.findNode(id)
-        if (node) {
-          yield node
-        }
-      }
-      if (nextCursor === '0') {
-        return
-      }
-      cursor = Number(nextCursor)
+  async findNode (id: number): Promise<Node|null> {
+    const nodeKey = `${this.config.nodeKeyPrefix}${id}`
+    const data = await this.redis.hgetBuffer(nodeKey, 'data')
+    if (!data) {
+      return null
     }
+    return this.messagePack.decode(data)
+  }
+
+  async nodeExists (id: number): Promise<boolean> {
+    return Boolean(await this.redis.exists(this.nodeKey(id)))
+  }
+
+  async updateNode (node: Node): Promise<Node> {
+    const { id } = node
+    const oldNode = await this.findNode(id)
+    invariant(oldNode, `Node:${id} doesn't exist cannot update`)
+    const updatedNode = {
+      ...oldNode,
+      ...node
+    }
+    await this.redis.hmset(this.nodeKey(id), {
+      id,
+      data: this.messagePack.encode(updatedNode),
+    })
+    return updatedNode
+  }
+
+  private evalCommands (): void {
+    this.evalCreateEdge()
+  }
+
+  private evalCreateEdge (): void {
+    this.redis.defineCommand('createEdge', {
+      numberOfKeys: 4,
+      lua: `
+      local objectEdgeKey = KEYS[1]
+      local subjectEdgeKey = KEYS[2]
+      local subjectKey = KEYS[3]
+      local objectKey = KEYS[4]
+
+      local subjectId = ARGV[1]
+      local objectId = ARGV[2]
+      local weight = ARGV[3]
+
+      if redis.call("exists", subjectKey) == 0 then
+        error('subject:' .. subjectId .. ' does not exist at key "' .. subjectKey .. '"')
+      end
+
+      if redis.call("exists", objectKey) == 0 then
+        error('object:' .. objectId .. ' does not exist at key "' .. objectKey .. '"')
+      end
+
+      redis.call('zadd', objectEdgeKey, weight, subjectId)
+      redis.call('zadd', subjectEdgeKey, weight, objectId)
+      return 1
+      `
+    })
+  }
+
+  private async getNextId (): Promise<number> {
+    return this.redis.incr(this.config.guidKey)
+  }
+
+  private nodeKey (id): string {
+    return `${this.config.nodeKeyPrefix}${id}`
   }
 }

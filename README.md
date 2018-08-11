@@ -66,6 +66,7 @@ await collect(graph.allNodes())
 ```
 
 
+
 ## Developing
 
 Tests use your local redis db 2 by default and are destructive. To use another DB submit a patch to make this configurable.
