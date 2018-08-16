@@ -194,6 +194,16 @@ export class Graph {
     return Boolean(await this.redis.exists(this.nodeKey(id)))
   }
 
+  async putNode (node: Node): Promise<Node> {
+    const { id } = node
+    invariant(await this.nodeExists(id), `Node:${id} doesn't exist cannot update`)
+    await this.redis.hmset(this.nodeKey(id), {
+      id,
+      data: this.messagePack.encode(node),
+    })
+    return node
+  }
+
   async updateNode (node: Node): Promise<Node> {
     const { id } = node
     const oldNode = await this.findNode(id)
@@ -202,10 +212,7 @@ export class Graph {
       ...oldNode,
       ...node
     }
-    await this.redis.hmset(this.nodeKey(id), {
-      id,
-      data: this.messagePack.encode(updatedNode),
-    })
+    await this.putNode(updatedNode)
     return updatedNode
   }
 

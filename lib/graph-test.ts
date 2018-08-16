@@ -55,6 +55,25 @@ describe('Graph', () => {
     })
   })
 
+  describe('putNode', () => {
+    it('replaces the whole node', async () => {
+      const bookData = {
+        title: 'A brief memory of time',
+        likes: 50,
+      }
+      const { id } = await graph.createNode(bookData)
+      const updatedNode = await graph.putNode({ id, title: 'lies about memory', dislikes: 1 })
+      assert.deepEqual(updatedNode, {
+        id,
+        title: 'lies about memory',
+        dislikes: 1
+      })
+    })
+    it('errors if no node exists', async () => {
+      await assert.isRejected(graph.putNode({ id: 4 }))
+    })
+  })
+
   describe('findNode', () => {
     it('returns null when no node is found', async () => {
       assert.isNull(await graph.findNode(1))
