@@ -55,8 +55,19 @@ export interface NodeScanOptions {
 
 declare module 'ioredis' {
   interface Redis {
-    // tslint:disable-next-line:no-method-signature max-line-length
-    createEdge (objectEdgeKey: string, subjectEdgeKey: string, subjectKey: string, objectKey: string, subject: number, object: number, weight: number): Promise<Edge>
+    readonly createEdge: (
+      objectEdgeKey: string,
+      subjectEdgeKey: string,
+      subjectKey: string,
+      objectKey: string,
+      subject: number,
+      object: number,
+      weight: number
+    ) => Promise<void>
+
+    readonly createNode: (nodeKey: string, nodeIndexKey: string, id: number, data: Buffer) => Promise<void>
+
+    readonly putNode: (nodeKey: string, id: number, data: Buffer) => Promise<void>
   }
 }
 
@@ -66,12 +77,22 @@ if ((Symbol as any).asyncIterator === undefined) {
   ((Symbol as any).asyncIterator) = Symbol.for('asyncIterator')
 }
 
+function decodeError<T> (promise: Promise<T>): Promise<T> {
+  return promise.catch(error => {
+    if (error.name === 'ReplyError') {
+      const message = error.message.replace(/.+λ/, '')
+      throw new Error(message)
+    }
+    throw error
+  })
+}
+
 export class Graph {
   readonly config: GraphConfig
   readonly messagePack: messagePack.MessagePack
   readonly redis: Redis.Redis
 
-  constructor (redisUrl: string, config?: GraphConfigInput) {
+  constructor (redis: string | Redis.Redis, config?: GraphConfigInput) {
     this.config = {
       guidKey: 'counter:guid',
       nodeKeyPrefix: 'node:',
@@ -79,7 +100,7 @@ export class Graph {
       nodeIndexKey: 'index:node:id',
       ...config
     }
-    this.redis = new Redis(redisUrl)
+    this.redis = typeof redis === 'string' ? new Redis(redis) : redis
     this.evalCommands()
     this.messagePack = messagePack()
   }
@@ -109,35 +130,38 @@ export class Graph {
     const subjectKey = this.nodeKey(subject)
     const objectKey = this.nodeKey(object)
 
-    await this.redis.createEdge(objectEdgeKey, subjectEdgeKey, subjectKey, objectKey, subject, object, weight)
+    await decodeError(this.redis.createEdge(
+      objectEdgeKey,
+      subjectEdgeKey,
+      subjectKey,
+      objectKey,
+      subject,
+      object,
+      weight
+    ))
     return { subject, predicate, object, weight }
   }
 
   async createNode (attributes): Promise<Node> {
     invariant(
       !attributes.id,
-      `attributes already has an "id" property this is probably ok but I'm going ot panic anyway`
+      'attributes already has an "id" property do you want putNode() or updateNode()?'
     )
 
     const id = await this.getNextId()
-    invariant(
-      !await this.nodeExists(id),
-      `Node with id ${id} already exists unable to create node. Something very bad has just happened`
-    )
-
     const node = {
       ...attributes,
       id
     }
 
-    await Promise.all([
-      this.redis.hmset(this.nodeKey(id), {
-        id,
-        data: this.messagePack.encode(node),
-      }),
-      this.redis.zadd(this.config.nodeIndexKey, '0', String(id))
-    ])
+    const data = this.messagePack.encode(node)
 
+    await decodeError(this.redis.createNode(
+      this.nodeKey(id),
+      this.config.nodeIndexKey,
+      id,
+      data.slice()
+    ))
     return node
   }
 
@@ -196,11 +220,7 @@ export class Graph {
 
   async putNode (node: Node): Promise<Node> {
     const { id } = node
-    invariant(await this.nodeExists(id), `Node:${id} doesn't exist cannot update`)
-    await this.redis.hmset(this.nodeKey(id), {
-      id,
-      data: this.messagePack.encode(node),
-    })
+    await decodeError(this.redis.putNode(this.nodeKey(id), id, this.messagePack.encode(node).slice()))
     return node
   }
 
@@ -212,43 +232,79 @@ export class Graph {
       ...oldNode,
       ...node
     }
-    await this.putNode(updatedNode)
-    return updatedNode
+    return this.putNode(updatedNode)
   }
 
   private evalCommands (): void {
     this.evalCreateEdge()
+    this.evalCreateNode()
+    this.evalPutNode()
   }
 
   private evalCreateEdge (): void {
     this.redis.defineCommand('createEdge', {
       numberOfKeys: 4,
       lua: `
-      local objectEdgeKey = KEYS[1]
-      local subjectEdgeKey = KEYS[2]
-      local subjectKey = KEYS[3]
-      local objectKey = KEYS[4]
+        local objectEdgeKey = KEYS[1]
+        local subjectEdgeKey = KEYS[2]
+        local subjectKey = KEYS[3]
+        local objectKey = KEYS[4]
 
-      local subjectId = ARGV[1]
-      local objectId = ARGV[2]
-      local weight = ARGV[3]
+        local subjectId = ARGV[1]
+        local objectId = ARGV[2]
+        local weight = ARGV[3]
 
-      if redis.call("exists", subjectKey) == 0 then
-        error('subject:' .. subjectId .. ' does not exist at key "' .. subjectKey .. '"')
-      end
+        if redis.call("exists", subjectKey) == 0 then
+          error('λsubject:' .. subjectId .. ' does not exist at key "' .. subjectKey .. '"')
+        end
 
-      if redis.call("exists", objectKey) == 0 then
-        error('object:' .. objectId .. ' does not exist at key "' .. objectKey .. '"')
-      end
+        if redis.call("exists", objectKey) == 0 then
+          error('λobject:' .. objectId .. ' does not exist at key "' .. objectKey .. '"')
+        end
 
-      redis.call('zadd', objectEdgeKey, weight, subjectId)
-      redis.call('zadd', subjectEdgeKey, weight, objectId)
-      return 1
+        redis.call('zadd', objectEdgeKey, weight, subjectId)
+        redis.call('zadd', subjectEdgeKey, weight, objectId)
       `
     })
   }
 
-  private async getNextId (): Promise<number> {
+  private evalCreateNode (): void {
+    this.redis.defineCommand('createNode', {
+      numberOfKeys: 2,
+      lua: `
+        local nodeKey = KEYS[1]
+        local nodeIndexKey = KEYS[2]
+        local id = ARGV[1]
+        local data = ARGV[2]
+
+        if redis.call("exists", nodeKey) == 1 then
+          error('λnode:' .. id .. ' already exist at key "' .. nodeKey .. '"')
+        end
+
+        redis.call('hmset', nodeKey, 'id', id, 'data', data)
+        redis.call('zadd', nodeIndexKey, '0', id)
+      `
+    })
+  }
+
+  private evalPutNode (): void {
+    this.redis.defineCommand('putNode', {
+      numberOfKeys: 1,
+      lua: `
+        local nodeKey = KEYS[1]
+        local id = ARGV[1]
+        local data = ARGV[2]
+
+        if redis.call("exists", nodeKey) == 0 then
+          error('λnode:' .. id .. ' does not exist at key "' .. nodeKey .. '"')
+        end
+
+        redis.call('hmset', nodeKey, 'id', id, 'data', data)
+      `
+    })
+  }
+
+  private async getNextId (): Promise<number > {
     return this.redis.incr(this.config.guidKey)
   }
 

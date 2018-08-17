@@ -21,6 +21,44 @@ describe('Graph', () => {
     graph.disconnect()
   })
 
+  describe('constructor', () => {
+    it('takes a redis object', () => {
+      const redis = new Redis(testRedisUrl)
+      const redisGraph = new Graph(redis)
+      redisGraph.disconnect()
+    })
+  })
+
+  describe('errorUnwrapping', () => {
+    it('unwrapps errors', async () => {
+      const errorGraph = new Graph({
+        defineCommand: () => {},
+        putNode: async () => {
+          const err = new Error('foo bar λhi')
+          // tslint:disable-next-line:no-object-mutation
+          err.name = 'ReplyError'
+          throw err
+        }
+      } as any)
+      await assert.isRejected(errorGraph.putNode({ id: 1 }), 'hi')
+    })
+    it('ignores general errors', async () => {
+      const errorGraph = new Graph({
+        defineCommand: () => {},
+        putNode: async () => { throw new Error('hi') }
+      } as any)
+      await assert.isRejected(errorGraph.putNode({ id: 1 }), 'hi')
+    })
+  })
+
+  describe('nodeExists', () => {
+    it('resolves boolean if it exists', async () => {
+      assert.isFalse(await graph.nodeExists(1))
+      const { id } = await graph.createNode({})
+      assert.isTrue(await graph.nodeExists(id))
+    })
+  })
+
   describe('createNode', () => {
     it('creates a node', async () => {
       const bookData = {
@@ -51,7 +89,7 @@ describe('Graph', () => {
       })
     })
     it('errors if no node exists', async () => {
-      await assert.isRejected(graph.updateNode({ id: 4 }))
+      await assert.isRejected(graph.updateNode({ id: 4 }), `Node:4 doesn't exist cannot update`)
     })
   })
 
@@ -70,7 +108,7 @@ describe('Graph', () => {
       })
     })
     it('errors if no node exists', async () => {
-      await assert.isRejected(graph.putNode({ id: 4 }))
+      await assert.isRejected(graph.putNode({ id: 4 }), 'node:4 does not exist at key "node:4"')
     })
   })
 
@@ -110,22 +148,22 @@ describe('Graph', () => {
       })
     })
 
-    it('rejects if missing an object', async () => {
+    it('rejects if missing a subject', async () => {
       const object = await graph.createNode({ type: 'object' })
       await assert.isRejected(graph.createEdge({
         object: object.id,
         predicate: 'HasThingy',
         subject: 4
-      }))
+      }), `subject:4 does not exist at key "node:4"`)
     })
 
-    it('rejects if missing a subject', async () => {
+    it('rejects if missing an object', async () => {
       const subject = await graph.createNode({ type: 'subject' })
       await assert.isRejected(graph.createEdge({
         object: 4,
         predicate: 'HasThingy',
         subject: subject.id
-      }))
+      }), `object:4 does not exist at key "node:4"`)
     })
   })
 
