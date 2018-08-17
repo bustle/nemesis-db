@@ -80,7 +80,9 @@ if ((Symbol as any).asyncIterator === undefined) {
 function decodeError<T> (promise: Promise<T>): Promise<T> {
   return promise.catch(error => {
     if (error.name === 'ReplyError') {
-      const message = error.message.replace(/.+λ/, '')
+      const firstLambdaPosition = error.message.indexOf('λ')
+      const lastLambdaPosition = error.message.lastIndexOf('λ')
+      const message = error.message.substring(firstLambdaPosition + 1, lastLambdaPosition)
       throw new Error(message)
     }
     throw error
@@ -255,11 +257,11 @@ export class Graph {
         local weight = ARGV[3]
 
         if redis.call("exists", subjectKey) == 0 then
-          error('λsubject:' .. subjectId .. ' does not exist at key "' .. subjectKey .. '"')
+          error('λsubject:' .. subjectId .. ' does not exist at key "' .. subjectKey .. '"λ')
         end
 
         if redis.call("exists", objectKey) == 0 then
-          error('λobject:' .. objectId .. ' does not exist at key "' .. objectKey .. '"')
+          error('λobject:' .. objectId .. ' does not exist at key "' .. objectKey .. '"λ')
         end
 
         redis.call('zadd', objectEdgeKey, weight, subjectId)
@@ -278,7 +280,7 @@ export class Graph {
         local data = ARGV[2]
 
         if redis.call("exists", nodeKey) == 1 then
-          error('λnode:' .. id .. ' already exist at key "' .. nodeKey .. '"')
+          error('λnode:' .. id .. ' already exist at key "' .. nodeKey .. '"λ')
         end
 
         redis.call('hmset', nodeKey, 'id', id, 'data', data)
@@ -296,7 +298,7 @@ export class Graph {
         local data = ARGV[2]
 
         if redis.call("exists", nodeKey) == 0 then
-          error('λnode:' .. id .. ' does not exist at key "' .. nodeKey .. '"')
+          error('λnode:' .. id .. ' does not exist at key "' .. nodeKey .. '"λ')
         end
 
         redis.call('hmset', nodeKey, 'id', id, 'data', data)
