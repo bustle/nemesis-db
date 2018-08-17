@@ -34,20 +34,20 @@ describe('Graph', () => {
       const errorGraph = new Graph({
         defineCommand: () => {},
         putNode: async () => {
-          const err = new Error('foo bar λhi')
+          const err = new Error('foo bar λhiλ ')
           // tslint:disable-next-line:no-object-mutation
           err.name = 'ReplyError'
           throw err
         }
       } as any)
-      await assert.isRejected(errorGraph.putNode({ id: 1 }), 'hi')
+      await assert.isRejected(errorGraph.putNode({ id: 1 }), /^hi$/)
     })
     it('ignores general errors', async () => {
       const errorGraph = new Graph({
         defineCommand: () => {},
         putNode: async () => { throw new Error('hi') }
       } as any)
-      await assert.isRejected(errorGraph.putNode({ id: 1 }), 'hi')
+      await assert.isRejected(errorGraph.putNode({ id: 1 }), /^hi$/)
     })
   })
 
@@ -89,7 +89,7 @@ describe('Graph', () => {
       })
     })
     it('errors if no node exists', async () => {
-      await assert.isRejected(graph.updateNode({ id: 4 }), `Node:4 doesn't exist cannot update`)
+      await assert.isRejected(graph.updateNode({ id: 4 }), /^Node:4 doesn't exist cannot update$/)
     })
   })
 
@@ -108,7 +108,7 @@ describe('Graph', () => {
       })
     })
     it('errors if no node exists', async () => {
-      await assert.isRejected(graph.putNode({ id: 4 }), 'node:4 does not exist at key "node:4"')
+      await assert.isRejected(graph.putNode({ id: 4 }), /^node:4 does not exist at key "node:4"$/)
     })
   })
 
@@ -163,7 +163,7 @@ describe('Graph', () => {
         object: 4,
         predicate: 'HasThingy',
         subject: subject.id
-      }), `object:4 does not exist at key "node:4"`)
+      }), /^object:4 does not exist at key "node:4"$/)
     })
   })
 
