@@ -14,17 +14,17 @@ This is a simple adjacency graph database with only a few features. It has been 
 
 ## Features
 - [x] 32 bit GUID
-- [x] Schemaless Nodes with Types
+- [x] Schemaless Nodes
 - [x] Weighted Edges
+- [x] Compression
 
 ## Future Features
+- Node Schemas, types and Interfaces
 - filtering edges based upon weight
 - Deleting
-- Node Schemas and Interfaces
 - Edge Schemas
 - Field Validations
 - Edge Validations
-- Compression
 - Edge scanning
 - Node scanning
 - Named Edges
@@ -101,6 +101,7 @@ export interface Node {
     readonly [key: string]: any;
 }
 export interface GraphConfigInput {
+    readonly compressors?: ReadonlyArray<Compressor>
     readonly edgePrefix?: string;
     readonly guidKey?: string;
     readonly nodeIndexKey?: string;
@@ -139,7 +140,11 @@ export interface ObjectEdgeSearch {
 export interface NodeScanOptions {
     readonly batchSize?: number;
 }
-
+export interface Compressor {
+    readonly compress: (Buffer: any) => Buffer | Promise<Buffer>;
+    readonly decompress: (Buffer: any) => Buffer | Promise<Buffer>;
+    readonly name: string;
+}
 ```
 
 ## Developing

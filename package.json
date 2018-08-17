@@ -51,9 +51,11 @@
     "typescript": "^3.0.1"
   },
   "dependencies": {
+    "@types/iltorb": "^2.3.0",
     "@types/msgpack5": "^3.4.1",
-    "invariant": "^2.2.4",
+    "iltorb": "^2.4.0",
     "ioredis": "^3.2.2",
-    "msgpack5": "^4.2.0"
+    "msgpack5": "^4.2.0",
+    "snappy": "^6.0.4"
   }
 }

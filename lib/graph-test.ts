@@ -2,6 +2,7 @@ import * as chai from 'chai'
 import * as chaiAsPromised from 'chai-as-promised'
 import * as Redis from 'ioredis'
 import { collect } from 'streaming-iterables'
+import { brotliCompression } from './compression'
 import { Graph, Node } from './graph'
 
 chai.use(chaiAsPromised)
@@ -17,7 +18,9 @@ describe('Graph', () => {
     redis.disconnect()
     graph = new Graph(testRedisUrl)
   })
-  afterEach(() => {
+  afterEach(async () => {
+    // works around bug in ioredis when you disconnect before it selects your database
+    await new Promise(resolve => setImmediate(resolve))
     graph.disconnect()
   })
 
@@ -71,6 +74,13 @@ describe('Graph', () => {
       }
       const node = await graph.createNode(bookData)
       assert.deepInclude(node, bookData)
+    })
+
+    it('throws if it already has an id', async () => {
+      await assert.isRejected(
+        graph.createNode({ id: 1 }),
+        'attributes already has an "id" property do you want putNode() or updateNode()?'
+      )
     })
   })
 
@@ -228,6 +238,38 @@ describe('Graph', () => {
       }
       await Promise.all(nodes)
       assert.equal((await collect(graph.allNodes({ batchSize: 1}))).length, 200)
+    })
+  })
+
+  describe('compression', () => {
+    it('compresses a node', async () => {
+      const compressionGraph = new Graph(testRedisUrl, {
+        compressors: [brotliCompression]
+      })
+      // tslint:disable-next-line:max-line-length
+      const title = `This is a long story about lots of things and places and people and you know maybe it's just an excuse to have a really long string in a test so we can have compression`
+      const node = await compressionGraph.createNode({ title })
+      assert.deepInclude(await compressionGraph.findNode(node.id), { title })
+
+      // I don't know how else to figure this out
+      const uncompressedNode = await graph.createNode({ title })
+      const [compressedData, compressorName] = await graph.redis.hmgetBuffer(
+        `node:${node.id}`,
+        'data',
+        'c'
+      )
+      assert.equal(compressorName.toString(), 'brotli')
+
+      const [uncompressedData, noCompressorName] = await graph.redis.hmgetBuffer(
+        `node:${uncompressedNode.id}`,
+        'data',
+        'c'
+      )
+      assert.equal(noCompressorName.toString(), '')
+
+      assert.isTrue(compressedData.length < uncompressedData.length)
+
+      compressionGraph.disconnect()
     })
   })
 })
