@@ -1,6 +1,7 @@
-import * as invariant from 'invariant'
 import * as Redis from 'ioredis'
 import * as messagePack from 'msgpack5'
+import { compressData, decompressData } from './compression'
+import { Compressor } from './compression/types'
 
 export interface Node {
   readonly id: number
@@ -8,6 +9,7 @@ export interface Node {
 }
 
 export interface GraphConfigInput {
+  readonly compressors?: ReadonlyArray<Compressor>
   readonly edgePrefix?: string
   readonly guidKey?: string
   readonly nodeIndexKey?: string
@@ -15,6 +17,7 @@ export interface GraphConfigInput {
 }
 
 export interface GraphConfig {
+  readonly compressors: Map<string, Compressor>
   readonly edgePrefix: string
   readonly guidKey: string
   readonly nodeIndexKey: string
@@ -65,9 +68,17 @@ declare module 'ioredis' {
       weight: number
     ) => Promise<void>
 
-    readonly createNode: (nodeKey: string, nodeIndexKey: string, id: number, data: Buffer) => Promise<void>
+    readonly createNode: (
+      nodeKey: string,
+      nodeIndexKey: string,
+      id: number,
+      compressor: string,
+      data: Buffer
+    ) => Promise<void>
 
-    readonly putNode: (nodeKey: string, id: number, data: Buffer) => Promise<void>
+    // tslint:disable-next-line:readonly-array
+    readonly hmgetBuffer: (key: string, ...keys: string[]) => Promise<ReadonlyArray<Buffer>>
+    readonly putNode: (nodeKey: string, id: number, compressor: string, data: Buffer) => Promise<void>
   }
 }
 
@@ -95,12 +106,25 @@ export class Graph {
   readonly redis: Redis.Redis
 
   constructor (redis: string | Redis.Redis, config?: GraphConfigInput) {
+    const {
+      guidKey = 'counter:guid',
+      nodeKeyPrefix = 'node:',
+      edgePrefix = 'edge:',
+      nodeIndexKey = 'index:node:id',
+      compressors = []
+    } = config || {}
+
+    const compressorsMap: Map<string, Compressor> = new Map()
+    for (const compressor of compressors) {
+      compressorsMap.set(compressor.name, compressor)
+    }
+
     this.config = {
-      guidKey: 'counter:guid',
-      nodeKeyPrefix: 'node:',
-      edgePrefix: 'edge:',
-      nodeIndexKey: 'index:node:id',
-      ...config
+      guidKey,
+      nodeKeyPrefix,
+      edgePrefix,
+      nodeIndexKey,
+      compressors: compressorsMap
     }
     this.redis = typeof redis === 'string' ? new Redis(redis) : redis
     this.evalCommands()
@@ -145,24 +169,25 @@ export class Graph {
   }
 
   async createNode (attributes): Promise<Node> {
-    invariant(
-      !attributes.id,
-      'attributes already has an "id" property do you want putNode() or updateNode()?'
-    )
-
+    if (attributes.id) {
+      throw new Error('attributes already has an "id" property do you want putNode() or updateNode()?')
+    }
     const id = await this.getNextId()
     const node = {
       ...attributes,
       id
     }
 
-    const data = this.messagePack.encode(node)
+    const data = this.messagePack.encode(node).slice()
+
+    const { name: compressorName, data: compressedData } = await compressData(data, this.config.compressors)
 
     await decodeError(this.redis.createNode(
       this.nodeKey(id),
       this.config.nodeIndexKey,
       id,
-      data.slice()
+      compressorName,
+      compressedData
     ))
     return node
   }
@@ -208,11 +233,15 @@ export class Graph {
   }
 
   async findNode (id: number): Promise<Node|null> {
-    const nodeKey = `${this.config.nodeKeyPrefix}${id}`
-    const data = await this.redis.hgetBuffer(nodeKey, 'data')
-    if (!data) {
+    const nodeKey = this.nodeKey(id)
+    const [compressorName, compressedData] = await this.redis.hmgetBuffer(nodeKey, 'c', 'data')
+    if (!compressedData || !compressorName) {
       return null
     }
+    const data = await decompressData({
+      name: compressorName.toString(),
+      data: compressedData
+    }, this.config.compressors)
     return this.messagePack.decode(data)
   }
 
@@ -222,14 +251,18 @@ export class Graph {
 
   async putNode (node: Node): Promise<Node> {
     const { id } = node
-    await decodeError(this.redis.putNode(this.nodeKey(id), id, this.messagePack.encode(node).slice()))
+    const data = this.messagePack.encode(node).slice()
+    const { name: compressorName, data: compressedData } = await compressData(data, this.config.compressors)
+    await decodeError(this.redis.putNode(this.nodeKey(id), id, compressorName, compressedData))
     return node
   }
 
   async updateNode (node: Node): Promise<Node> {
     const { id } = node
     const oldNode = await this.findNode(id)
-    invariant(oldNode, `Node:${id} doesn't exist cannot update`)
+    if (!oldNode) {
+      throw new Error(`Node:${id} doesn't exist cannot update`)
+    }
     const updatedNode = {
       ...oldNode,
       ...node
@@ -277,13 +310,14 @@ export class Graph {
         local nodeKey = KEYS[1]
         local nodeIndexKey = KEYS[2]
         local id = ARGV[1]
-        local data = ARGV[2]
+        local compressor = ARGV[2]
+        local data = ARGV[3]
 
         if redis.call("exists", nodeKey) == 1 then
           error('λnode:' .. id .. ' already exist at key "' .. nodeKey .. '"λ')
         end
 
-        redis.call('hmset', nodeKey, 'id', id, 'data', data)
+        redis.call('hmset', nodeKey, 'id', id, 'c', compressor, 'data', data)
         redis.call('zadd', nodeIndexKey, '0', id)
       `
     })
@@ -295,13 +329,14 @@ export class Graph {
       lua: `
         local nodeKey = KEYS[1]
         local id = ARGV[1]
-        local data = ARGV[2]
+        local compressor = ARGV[2]
+        local data = ARGV[3]
 
         if redis.call("exists", nodeKey) == 0 then
           error('λnode:' .. id .. ' does not exist at key "' .. nodeKey .. '"λ')
         end
 
-        redis.call('hmset', nodeKey, 'id', id, 'data', data)
+        redis.call('hmset', nodeKey, 'id', id, 'c', compressor, 'data', data)
       `
     })
   }

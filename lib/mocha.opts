@@ -1,4 +1,4 @@
 --bail
 --require ts-node/register
 --require source-map-support/register
-lib/*-test.ts
+lib/**/*-test.ts
