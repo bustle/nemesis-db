@@ -12,6 +12,7 @@ export interface GraphConfigInput {
   readonly compressors?: ReadonlyArray<Compressor>
   readonly edgePrefix?: string
   readonly guidKey?: string
+  readonly labeledEdgePrefix?: string
   readonly nodeIndexKey?: string
   readonly nodeKeyPrefix?: string
 }
@@ -20,6 +21,7 @@ export interface GraphConfig {
   readonly compressors: Map<string, Compressor>
   readonly edgePrefix: string
   readonly guidKey: string
+  readonly labeledEdgePrefix: string
   readonly nodeIndexKey: string
   readonly nodeKeyPrefix: string
 }
@@ -38,6 +40,13 @@ export interface Edge {
   readonly weight: number
 }
 
+export interface LabeledEdge {
+  readonly label: string
+  readonly object: number
+  readonly predicate: string
+  readonly subject: number
+}
+
 export interface SubjectEdgeSearch {
   readonly limit?: number
   readonly offset?: number
@@ -50,6 +59,12 @@ export interface ObjectEdgeSearch {
   readonly object: number
   readonly offset?: number
   readonly predicate: string
+}
+
+export interface LabeledEdgeSearch {
+  readonly label: string
+  readonly predicate: string
+  readonly subject: number
 }
 
 export interface NodeScanOptions {
@@ -110,6 +125,7 @@ export class Graph {
       guidKey = 'counter:guid',
       nodeKeyPrefix = 'node:',
       edgePrefix = 'edge:',
+      labeledEdgePrefix = 'label:',
       nodeIndexKey = 'index:node:id',
       compressors = []
     } = config || {}
@@ -124,7 +140,8 @@ export class Graph {
       nodeKeyPrefix,
       edgePrefix,
       nodeIndexKey,
-      compressors: compressorsMap
+      compressors: compressorsMap,
+      labeledEdgePrefix
     }
     this.redis = typeof redis === 'string' ? new Redis(redis) : redis
     this.evalCommands()
@@ -166,6 +183,46 @@ export class Graph {
       weight
     ))
     return { subject, predicate, object, weight }
+  }
+
+  async createLabeledEdge (edge: LabeledEdge): Promise<LabeledEdge> {
+    const { subject, predicate, label, object } = edge
+    const OBJECT_EDGE_LABEL = 'o'
+    const SUBJECT_EDGE_LABEL = 's'
+
+    const namedEdgeKey = `${this.config.labeledEdgePrefix}:${subject}:${predicate}`
+    const objectStoreKey = `${this.config.labeledEdgePrefix}:${OBJECT_EDGE_LABEL}:${object}`
+    const subjectStoreKey = `${this.config.labeledEdgePrefix}:${SUBJECT_EDGE_LABEL}:${subject}`
+    const score = await this.redis.zscore(namedEdgeKey, label)
+
+    if (score) {
+      if (Number(score) !== object) {
+        // tslint:disable-next-line:max-line-length
+        throw new Error(`Labeled Edge for subject:${subject} predicate:${predicate} label:"${label}" is already in use by node id:${score}`)
+      }
+      return edge
+    }
+    await Promise.all([
+      this.redis.zadd(namedEdgeKey, `${object}`, label),
+      // this.redis.zadd(objectStoreKey, `${subject}`, namedEdgeKey),
+      // this.redis.zadd(subjectStoreKey, '0', namedEdgeKey)
+    ])
+    return edge
+  }
+
+  async findLabeledEdge (inputEdge: LabeledEdgeSearch): Promise<LabeledEdge|null> {
+    const { label, subject, predicate } = inputEdge
+    const namedEdgeKey = `${this.config.labeledEdgePrefix}:${subject}:${predicate}`
+    const score = await this.redis.zscore(namedEdgeKey, label)
+    if (!score) {
+      return null
+    }
+    return {
+      label,
+      subject,
+      predicate,
+      object: Number(score)
+    }
   }
 
   async createNode (attributes): Promise<Node> {

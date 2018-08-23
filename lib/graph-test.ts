@@ -272,4 +272,19 @@ describe('Graph', () => {
       compressionGraph.disconnect()
     })
   })
+
+  describe('findLabeledEdge', () => {
+    it('finds a labeled edge', async () => {
+      const site = await graph.createNode({ type: 'site' })
+      const post = await graph.createNode({ type: 'post' })
+      const path = '/foobar'
+      const labeledEdge = await graph.createLabeledEdge({
+        subject: site.id,
+        predicate: 'Path',
+        label: path,
+        object: post.id
+      })
+      assert.deepEqual(await graph.findLabeledEdge({subject: site.id, predicate: 'Path', label: path}), labeledEdge)
+    })
+  })
 })
